@@ -28,15 +28,13 @@ function pickDetailCol(detail, idx) {
 }
 
 router.get('/', async (req, res) => {
-  const { name = '', department = '', overall_result = '', batch = '', page = 1 } = req.query;
+  const { name = '', department = '', overall_result = '', page = 1 } = req.query;
   const pageSize = 20;
   const offset = (Number(page) - 1) * pageSize;
-  const filters = { name, department, overall_result, batch };
 
   try {
-    // 取所有 source='upload' 的体检日期作为批次（按体检日期倒序），
-    // 使培训端在最新一批次体检结果归档后自动展示最新体检日期
-    const { rows: batchRows } = await pool.query(`
+    // 培训端只能看到当前最新一批 source='upload' 的体检结果，历史批次自动被覆盖不可见
+    const { rows: latestRows } = await pool.query(`
       SELECT check_date::text AS batch,
              COUNT(*)::int AS emp_count
       FROM (
@@ -48,18 +46,17 @@ router.get('/', async (req, res) => {
       ) sub
       GROUP BY check_date
       ORDER BY check_date DESC
-      LIMIT 50
+      LIMIT 1
     `);
-    const batches = batchRows.map(r => ({ value: r.batch, label: r.batch + ' (' + r.emp_count + ' 人)' }));
+    const latestBatch = latestRows.length ? latestRows[0] : null;
+    const effectiveBatch = latestBatch ? latestBatch.batch : '';
+    const batches = latestBatch ? [{ value: latestBatch.batch, label: latestBatch.batch + ' (' + latestBatch.emp_count + ' 人)' }] : [];
+    const filters = { name, department, overall_result, batch: effectiveBatch };
 
-    // 如果没指定批次，默认选最新体检日期
-    const effectiveBatch = batch || (batches.length ? batches[0].value : '');
-
-    // 只看本次 SSC 上传的体检结果（source='upload'），不包含历史归档数据
+    // 只看最新批次本次 SSC 上传的体检结果（source='upload'），不包含历史归档数据
     const conditions = [`hc.source = 'upload'`];
     const params = [];
 
-    // 限制只看选定体检日期
     if (effectiveBatch) {
       params.push(effectiveBatch);
       conditions.push(`hc.check_date = $${params.length}::date`);
@@ -165,28 +162,25 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/download', async (req, res) => {
-  const { name = '', department = '', overall_result = '', batch = '' } = req.query;
+  const { name = '', department = '', overall_result = '' } = req.query;
   const conditions = [];
   const params = [];
 
-  // 取所有 source='upload' 的最新体检日期作为默认批次
-  let effectiveBatch = batch;
-  if (!effectiveBatch) {
-    const { rows: latest } = await pool.query(`
-      SELECT check_date::text AS b
-      FROM (
-        SELECT DISTINCT ON (employee_id) employee_id, check_date
-        FROM health_checks
-        WHERE source = 'upload'
-          AND check_date IS NOT NULL
-        ORDER BY employee_id, id DESC
-      ) sub
-      GROUP BY check_date
-      ORDER BY check_date DESC
-      LIMIT 1
-    `);
-    effectiveBatch = latest.length ? latest[0].b : '';
-  }
+  // 培训端下载时同样只能导出最新 source='upload' 批次
+  const { rows: latest } = await pool.query(`
+    SELECT check_date::text AS b
+    FROM (
+      SELECT DISTINCT ON (employee_id) employee_id, check_date
+      FROM health_checks
+      WHERE source = 'upload'
+        AND check_date IS NOT NULL
+      ORDER BY employee_id, id DESC
+    ) sub
+    GROUP BY check_date
+    ORDER BY check_date DESC
+    LIMIT 1
+  `);
+  const effectiveBatch = latest.length ? latest[0].b : '';
 
   conditions.push(`hc.source = 'upload'`);
   if (effectiveBatch) {

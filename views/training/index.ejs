@@ -53,20 +53,20 @@ function fmtDate(v) {
   <div class="alert alert-info d-flex align-items-center" role="alert">
     <span class="me-2">🔒</span>
     <div>
-      <strong>权限说明：</strong>培训师仅可见<b>本次上传的体检结果</b>，
-      <b>历史体检结果不可见</b>。如需查看其他批次，请在下方下拉框切换。
+      <strong>权限说明：</strong>培训端仅展示<b>当前最新批次</b>的体检结果，
+      <b>历史批次自动覆盖、不可查看</b>。每次 SSC 上传新一批体检结果后，本页面自动切换为最新批次。
     </div>
   </div>
 
   <form class="row g-3 mb-4" method="get" action="/training">
     <div class="col-md-3">
-      <label class="form-label small text-muted mb-1">批次（按体检日期）</label>
-      <select name="batch" class="form-select" onchange="this.form.submit()">
+      <label class="form-label small text-muted mb-1">当前批次（按体检日期）</label>
+      <select name="batch" class="form-select" disabled>
         <% if (batches.length === 0) { %>
           <option value="">（暂无批次）</option>
         <% } %>
         <% batches.forEach((b) => { %>
-          <option value="<%= b.value %>" <%= b.value === effectiveBatch ? 'selected' : '' %>><%= b.label %></option>
+          <option value="<%= b.value %>" selected><%= b.label %></option>
         <% }) %>
       </select>
     </div>
