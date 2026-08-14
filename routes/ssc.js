@@ -1029,6 +1029,27 @@ router.post('/discard-results', (req, res) => {
   res.redirect('/ssc/import-results');
 });
 
+// SSC 在预览页直接修改任意文本字段（复查建议及相关风险 / 备注 / 目前已存在异常）
+// 仅更新 session.previewData[index]，不影响 DB，直到点「确认归档」才落库
+router.post('/update-preview-field', express.json(), (req, res) => {
+  const preview = req.session.previewData;
+  if (!preview || !Array.isArray(preview)) {
+    return res.status(400).json({ success: false, message: '没有待编辑的预览数据' });
+  }
+  const index = Number(req.body.index);
+  const field = String(req.body.field || '').trim();
+  const value = String(req.body.value || '');
+  if (!Number.isInteger(index) || index < 0 || index >= preview.length) {
+    return res.status(400).json({ success: false, message: '行号无效' });
+  }
+  const ALLOWED = ['risk', 'abnormal', 'summary'];
+  if (!ALLOWED.includes(field)) {
+    return res.status(400).json({ success: false, message: '字段不允许编辑' });
+  }
+  preview[index][field] = value;
+  res.json({ success: true, field, value });
+});
+
 // SSC 在预览页直接修改某行体检结果评级
 // 仅更新 session.previewData[index]，不影响 DB，直到点「确认归档」才落库
 router.post('/update-preview-result', express.json(), (req, res) => {

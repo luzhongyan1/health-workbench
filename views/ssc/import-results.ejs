@@ -128,10 +128,10 @@
                   <div class="summary-cell" data-index="<%= idx %>" style="white-space: pre-wrap;"><small><%= row.summary || '' %></small></div>
                 </td>
                 <td>
-                  <div class="risk-cell" data-index="<%= idx %>" style="white-space: pre-wrap;"><small><%= row.risk || '' %></small></div>
+                  <textarea class="form-control form-control-sm editable-preview-cell" data-index="<%= idx %>" data-field="risk" rows="3" style="min-width: 200px; resize: vertical;"><%= row.risk || '' %></textarea>
                 </td>
                 <td>
-                  <div class="remark-cell" data-index="<%= idx %>" style="white-space: pre-wrap;"><small><%= row.abnormal || '' %></small></div>
+                  <textarea class="form-control form-control-sm editable-preview-cell" data-index="<%= idx %>" data-field="abnormal" rows="3" style="min-width: 160px; resize: vertical;"><%= row.abnormal || '' %></textarea>
                 </td>
                 <td>
                   <small><%= row.department || '' %></small>
@@ -216,6 +216,29 @@ document.addEventListener('focusout', function(ev) {
     wrap.querySelector('.overall-badge-view').classList.remove('d-none');
     sel.classList.add('d-none');
   }, 200);
+});
+
+// 预览页可编辑字段：复查建议及相关风险 / 备注（blur 时保存到 session）
+document.addEventListener('change', async function(ev) {
+  const ta = ev.target.closest('.editable-preview-cell');
+  if (!ta) return;
+  const idx = Number(ta.dataset.index);
+  const field = ta.dataset.field;
+  const value = ta.value;
+  if (!field || !['risk','abnormal','summary'].includes(field)) return;
+  try {
+    const res = await fetch('/ssc/update-preview-field', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: idx, field, value })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      alert(data.message || '保存失败');
+    }
+  } catch (err) {
+    alert('网络错误：' + err.message);
+  }
 });
 </script>
 
