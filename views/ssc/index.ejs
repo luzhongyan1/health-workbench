@@ -1,0 +1,124 @@
+<%- include('../partials/header') %>
+
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h1 class="h4">SSC 工作台</h1>
+      <p class="text-muted mb-0">
+        <strong>实时比对 + 批次隔离：</strong>只看最新一批招聘上传的体检预约名单，
+        与历史体检底表（health_checks WHERE source='history'）比对，
+        自动剔除近 3 个月内参加过体检且结果为「合格 / 合格-有风险」的人员，
+        剩下的即为「需要预约体检」名单。
+      </p>
+      <p class="text-muted small mb-0 mt-1">
+        <span class="badge text-bg-light border">⚡ 实时计算</span>
+        <span class="badge text-bg-light border">📦 批次隔离</span>
+        每次招聘上传 = 新批次，旧批次数据保留但不参与统计。
+      </p>
+    </div>
+  </div>
+
+  <!-- 统计卡片 -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <div class="card text-white bg-primary">
+        <div class="card-body py-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-uppercase small opacity-75">需预约体检</div>
+              <div class="fs-3 fw-bold"><%= needsCount %></div>
+            </div>
+            <span class="fs-1 opacity-50">📋</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-white bg-success">
+        <div class="card-body py-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-uppercase small opacity-75">免检（3月内合格）</div>
+              <div class="fs-3 fw-bold"><%= exemptCount %></div>
+            </div>
+            <span class="fs-1 opacity-50">✅</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-white bg-info">
+        <div class="card-body py-3">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <div class="text-uppercase small opacity-75">历史底表录入</div>
+              <div class="fs-3 fw-bold"><%= historyCount %></div>
+            </div>
+            <span class="fs-1 opacity-50">📚</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="d-flex flex-wrap gap-2 mb-4">
+    <a href="/ssc/upload-history" class="btn btn-outline-secondary">上传历史体检底表</a>
+    <a href="/ssc/upload-standards" class="btn btn-outline-secondary">上传体检标准</a>
+    <a href="/ssc/export-appointment" class="btn btn-primary">导出预约名单</a>
+    <form action="/ssc/clear-needs/delete" method="post" class="d-inline" onsubmit="return confirm('确认一键清空当前预约列表的全部员工吗？\n所有记录及关联的体检结果都会一并删除，且不可恢复。');">
+      <button type="submit" class="btn btn-danger">一键清空</button>
+    </form>
+  </div>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+  <% } %>
+  <% if (typeof deleted !== 'undefined' && deleted) { %>
+    <div class="alert alert-success">已删除 <%= deleted %> 条员工预约记录。</div>
+  <% } %>
+  <% if (typeof archived !== 'undefined' && archived && archived !== '0') { %>
+    <div class="alert alert-success">
+      ✅ <strong>归档完成！</strong> 本次体检结果已归档 <%= archived %> 人到历史体检底表，需预约 / 免检数量已自动重算。
+    </div>
+  <% } %>
+
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>姓名</th>
+          <th>身份证</th>
+          <th>手机号</th>
+          <th>岗位</th>
+          <th>预计入职</th>
+          <th class="text-end">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (needs.length === 0) { %>
+          <tr><td colspan="6" class="text-center text-muted py-4">当前没有需预约体检的人员。</td></tr>
+        <% } %>
+        <% needs.forEach((person) => { %>
+          <tr>
+            <td><%= person.name %></td>
+            <td><%= person.id_card %></td>
+            <td><%= person.phone %></td>
+            <td><%= person.position %></td>
+            <td><%= person.expected_onboard_date %></td>
+            <td class="text-end">
+              <form action="/ssc/employees/<%= person.id %>/delete" method="post" class="d-inline" onsubmit="return confirm('确认删除 <%= person.name %> 的预约记录吗？\n该员工的体检记录也会一并被清空，且不可恢复。');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">🗑 删除</button>
+              </form>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <div class="mt-4">
+    <a href="/ssc/import-results" class="btn btn-outline-primary">上传本次体检结果</a>
+    <a href="/ssc/history-list" class="btn btn-outline-info ms-2">查看历史体检记录</a>
+  </div>
+</div>
+
+<%- include('../partials/footer') %>

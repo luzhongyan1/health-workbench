@@ -1,0 +1,28 @@
+<%- include('../partials/header') %>
+
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h1 class="h4">上传体检标准</h1>
+      <p class="text-muted">SSC 可上传体检标准表，供 AI 进行结果判断。</p>
+    </div>
+    <a href="/ssc" class="btn btn-outline-secondary">返回工作台</a>
+  </div>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+  <% } %>
+  <% if (result) { %>
+    <div class="alert alert-success">已导入 <%= result.imported %> 条体检标准。</div>
+  <% } %>
+
+  <form action="/ssc/upload-standards" method="post" enctype="multipart/form-data">
+    <div class="mb-3">
+      <label class="form-label">上传 Excel 文件</label>
+      <input type="file" name="file" class="form-control" accept=".xlsx" required />
+    </div>
+    <button type="submit" class="btn btn-primary">上传并保存</button>
+  </form>
+</div>
+
+<%- include('../partials/footer') %>

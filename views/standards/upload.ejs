@@ -1,0 +1,68 @@
+<%- include('../partials/header') %>
+
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+      <h1 class="h4">批量导入体检标准</h1>
+      <p class="text-muted mb-0">上传 Excel（.xlsx）一次性导入多条标准规则。</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="/standards" class="btn btn-outline-secondary">返回列表</a>
+      <a href="/standards/template" class="btn btn-outline-primary">下载模板</a>
+    </div>
+  </div>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+  <% } %>
+  <% if (typeof success !== 'undefined' && success) { %>
+    <div class="alert alert-success"><%= success %></div>
+  <% } %>
+
+  <div class="card shadow-sm">
+    <div class="card-body">
+      <form method="post" action="/standards/upload" enctype="multipart/form-data">
+        <div class="mb-3">
+          <label for="file" class="form-label">选择 Excel 文件（.xlsx）</label>
+          <input type="file" class="form-control" id="file" name="file" accept=".xlsx,.xlsm" required />
+          <div class="form-text">
+            表头需包含 3 列（A 列可留空）：<br />
+            <strong>入职参照异常指标范围</strong>：体检项目描述（如"心电图：心率120以上"）<br />
+            <strong>体检结果评级</strong>：合格 / 合格-有风险 / 复查 / 红灯 之一<br />
+            <strong>相关风险提示</strong>：对该指标的说明文字<br />
+            <span class="text-muted">第 1 行表头不动，从第 2 行开始填数据。建议先下载模板对照格式。</span>
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary">上传并导入</button>
+      </form>
+    </div>
+  </div>
+
+  <% if (typeof preview !== 'undefined' && preview && preview.length > 0) { %>
+    <h5 class="mt-4">导入预览（前 10 行）</h5>
+    <div class="table-responsive">
+      <table class="table table-sm table-bordered align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>入职参照异常指标范围</th>
+            <th>体检结果评级</th>
+            <th>相关风险提示</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% preview.forEach((p) => { %>
+            <tr>
+              <td><%= p.item_name %></td>
+              <td><span class="badge
+                <% if (p.unit && p.unit.includes('红灯')) { %>bg-danger<% } else if (p.unit && p.unit.includes('复查')) { %>bg-warning text-dark<% } else if (p.unit && p.unit.includes('有风险')) { %>bg-info text-dark<% } else if (p.unit && p.unit.includes('合格')) { %>bg-success<% } else { %>bg-secondary<% } %>
+              "><%= p.unit || '-' %></span></td>
+              <td><%= p.risk_text || '-' %></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>

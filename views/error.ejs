@@ -1,0 +1,19 @@
+<%- include('partials/header') %>
+    <div class="container d-flex align-items-center justify-content-center" style="min-height: 70vh;">
+      <div class="card shadow-sm border-0" style="max-width: 480px; width: 100%;">
+        <div class="card-body p-4 text-center">
+          <div class="mb-3 text-danger">
+            <svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M7.938 2.016A.13.13 0 0 1 8.002 2a.13.13 0 0 1 .063.016.146.146 0 0 1 .054.057l6.857 11.667c.036.06.035.124.002.183a.163.163 0 0 1-.054.06.116.116 0 0 1-.066.017H1.146a.115.115 0 0 1-.066-.017.163.163 0 0 1-.054-.06.176.176 0 0 1 .002-.183L7.884 2.073a.147.147 0 0 1 .054-.057zM8 5.993c.057 0 .113.015.163.045a.329.329 0 0 1 .123.124.42.42 0 0 1 .063.182.557.557 0 0 1-.01.21l-.46 3.18a.47.47 0 0 1-.137.265.423.423 0 0 1-.274.097.423.423 0 0 1-.274-.097.47.47 0 0 1-.137-.265l-.46-3.18a.557.557 0 0 1-.01-.21.42.42 0 0 1 .063-.182.329.329 0 0 1 .123-.124A.317.317 0 0 1 8 5.993zM8 11.5a.75.75 0 1 1 0 1.5.75.75 0 0 1 0-1.5z"/>
+            </svg>
+          </div>
+          <h3 class="fw-bold mb-2"><%= typeof title !== 'undefined' ? title : '出错了' %></h3>
+          <p class="text-muted mb-4"><%= typeof error !== 'undefined' ? error : '页面访问出现问题，请稍后重试。' %></p>
+          <div class="d-flex gap-2 justify-content-center">
+            <a href="/" class="btn btn-primary">返回首页</a>
+            <button type="button" class="btn btn-outline-secondary" onclick="history.back()">返回上一页</button>
+          </div>
+        </div>
+      </div>
+    </div>
+<%- include('partials/footer') %>

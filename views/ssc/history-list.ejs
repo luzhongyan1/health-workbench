@@ -1,0 +1,189 @@
+<%- include('../partials/header') %>
+
+<%
+// 助显：ExcelJS cell 提取字符串
+function pickText(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') {
+    if (v.text) return String(v.text).trim();
+    if (v.result !== undefined) return String(v.result).trim();
+    if (Array.isArray(v.richText)) return v.richText.map(rt => rt.text || '').join('').trim();
+    if (v.formula) return '';
+    return '';
+  }
+  return String(v).trim();
+}
+function pickDetailCol(row, idx, key) {
+  const d = row && row.detail_json;
+  if (Array.isArray(d)) return pickText(d[idx]);
+  if (d && typeof d === 'object') {
+    if (key && d[key] !== undefined) return pickText(d[key]);
+    if (d[idx] !== undefined) return pickText(d[idx]);
+    return pickText(d[String(idx)]);
+  }
+  return '';
+}
+// 把数据库日期格式化为 YYYY-MM-DD（取本地时区年月日，避免 UTC 偏移）
+function fmtDate(v) {
+  if (!v) return '';
+  if (v instanceof Date) {
+    const yy = v.getFullYear();
+    const mm = String(v.getMonth() + 1).padStart(2, '0');
+    const dd = String(v.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+  const s = String(v);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : s;
+}
+function fmtDt(v) {
+  if (!v) return '';
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? '' : d.toLocaleString('zh-CN');
+}
+function truncate(s, n) {
+  if (!s) return '';
+  s = String(s);
+  return s.length > n ? s.slice(0, n) + '...' : s;
+}
+%>
+
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h1 class="h4">历史体检记录</h1>
+      <p class="text-muted">查看所有已上传的历史体检底表（可按姓名/身份证号搜索）。<br>
+        <small class="text-muted">列表严格按底表模板 12 列展示：序号 / 身份证号 / 体检人姓名 / 性别 / 年龄 / 体检日期 / 拟入职时间 / 体检结果 / 目前已存在异常 / 复查建议及相关风险 / 备注 / 部门</small>
+      </p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="/ssc/export-history" class="btn btn-success">导出历史体检底表</a>
+      <a href="/ssc/upload-history" class="btn btn-outline-primary">继续上传</a>
+      <a href="/ssc" class="btn btn-outline-secondary">返回工作台</a>
+      <form method="post" action="/ssc/history-list/clear-all" class="d-inline" onsubmit="return confirm('确定要清空所有历史体检记录吗？此操作不可恢复。');">
+        <button type="submit" class="btn btn-danger">一键清空历史记录</button>
+      </form>
+    </div>
+  </div>
+
+  <form method="get" class="row g-2 mb-3 align-items-end">
+    <div class="col-auto">
+      <label class="form-label mb-1 small text-muted">姓名/身份证号</label>
+      <input type="text" name="search" value="<%= search %>" placeholder="姓名或身份证号" class="form-control" />
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-1 small text-muted">体检日期 从</label>
+      <input type="date" name="dateFrom" value="<%= dateFrom %>" class="form-control" />
+    </div>
+    <div class="col-auto">
+      <label class="form-label mb-1 small text-muted">到</label>
+      <input type="date" name="dateTo" value="<%= dateTo %>" class="form-control" />
+    </div>
+    <div class="col-auto">
+      <button type="submit" class="btn btn-primary">搜索</button>
+    </div>
+    <div class="col-auto">
+      <a href="/ssc/history-list" class="btn btn-outline-secondary">重置</a>
+    </div>
+    <div class="col-auto ms-auto">
+      <span class="badge bg-info text-dark">本次显示 <%= rows.length %> 条 / 合计 <%= totalCount %> 条</span>
+    </div>
+  </form>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+  <% } %>
+  <% if (typeof deleted !== 'undefined' && deleted) { %>
+    <div class="alert alert-success">已删除 <%= deleted %> 条记录。</div>
+  <% } %>
+
+  <% if (rows.length === 0) { %>
+    <div class="alert alert-warning">没有匹配的历史记录。</div>
+  <% } else { %>
+    <div class="table-responsive">
+      <table class="table table-sm table-striped align-middle">
+        <thead class="table-light">
+          <tr>
+            <th>序号</th>
+            <th>身份证号</th>
+            <th>体检人姓名</th>
+            <th>性别</th>
+            <th>年龄</th>
+            <th>体检日期</th>
+            <th>拟入职时间</th>
+            <th>体检结果</th>
+            <th>目前已存在异常</th>
+            <th>复查建议及相关风险</th>
+            <th>备注</th>
+            <th>部门</th>
+            <th style="min-width:90px;">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% rows.forEach((r, i) => {
+               const serialNo = i + 1 + offset;
+               const idCard = r.id_card || pickDetailCol(r, 2) || '';
+               const name = r.name || pickDetailCol(r, 3) || '';
+               const gender = pickDetailCol(r, 4) || r.gender || '';
+               const age = pickDetailCol(r, 5);
+               const checkDate = r.check_date || pickDetailCol(r, 6) || '';
+               const expectedOnboard = r.expected_onboard_date || pickDetailCol(r, 7) || '';
+               // 12 列数组语义：9=目前已存在异常 / 10=复查建议及相关风险 / 11=备注
+               const summary = pickDetailCol(r, 9, 'summary');
+               const risk = pickDetailCol(r, 10, 'risk');
+               const abnormal = pickDetailCol(r, 11, 'abnormal');
+               const department = pickDetailCol(r, 12) || r.department || '';
+          %>
+            <tr>
+              <td><%= serialNo %></td>
+              <td><%= idCard %></td>
+              <td><%= name %></td>
+              <td><%= gender || '' %></td>
+              <td><%= age || '' %></td>
+              <td><%= fmtDate(checkDate) %></td>
+              <td><%= fmtDate(expectedOnboard) %></td>
+              <td>
+                <% if (r.overall_result === 'pass') { %>
+                  <span class="badge bg-success">合格</span>
+                <% } else if (r.overall_result === 'red') { %>
+                  <span class="badge bg-danger">红灯</span>
+                <% } else if (r.overall_result && r.overall_result.includes('风险')) { %>
+                  <span class="badge bg-warning text-dark"><%= r.overall_result %></span>
+                <% } else { %>
+                  <span class="badge bg-secondary"><%= r.overall_result || '待定' %></span>
+                <% } %>
+              </td>
+              <td><pre class="m-0 small" style="white-space:pre-wrap;max-width:280px;"><%= truncate(summary, 200) %></pre></td>
+              <td><pre class="m-0 small" style="white-space:pre-wrap;max-width:280px;"><%= truncate(risk, 200) %></pre></td>
+              <td><%= abnormal || '' %></td>
+              <td><%= department %></td>
+              <td>
+                <form method="post" action="/ssc/history-list/<%= r.id %>/delete" onsubmit="return confirm('确定删除这条历史体检记录吗？');">
+                  <input type="hidden" name="search" value="<%= search %>" />
+                  <input type="hidden" name="dateFrom" value="<%= dateFrom %>" />
+                  <input type="hidden" name="dateTo" value="<%= dateTo %>" />
+                  <input type="hidden" name="page" value="<%= page %>" />
+                  <button type="submit" class="btn btn-sm btn-outline-danger">删除</button>
+                </form>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+
+    <% if (totalPages > 1) { %>
+      <nav>
+        <ul class="pagination pagination-sm">
+          <% for (let p = 1; p <= totalPages; p++) { %>
+            <li class="page-item <%= p === page ? 'active' : '' %>">
+              <a class="page-link" href="?search=<%= encodeURIComponent(search) %>&dateFrom=<%= encodeURIComponent(dateFrom) %>&dateTo=<%= encodeURIComponent(dateTo) %>&page=<%= p %>"><%= p %></a>
+            </li>
+          <% } %>
+        </ul>
+      </nav>
+    <% } %>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>

@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Build
+dist/
+build/
+
+# Misc
+*.tmp
+*.swp
+cookie.txt
+upload_out.html
+
+# Debug / temporary files
+_*.txt
+_*.js
+*-out.txt
+*-page.html
+hc.txt
+peek.txt
+train.txt

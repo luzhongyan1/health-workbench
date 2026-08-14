@@ -1,0 +1,222 @@
+<%- include('../partials/header') %>
+
+<div class="container py-4">
+  <style>
+    /* 让「修改评级」badge 视觉上明显可点击：虚线外框 + hover 抬起 + ⚙ 齿轮图标提示 */
+    .overall-badge {
+      transition: transform .12s ease, box-shadow .12s ease;
+      box-shadow: 0 0 0 1px rgba(0,0,0,.08);
+      padding: .45em .8em;
+      font-size: .9em;
+    }
+    .overall-badge:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 6px rgba(0,0,0,.2);
+      outline: 2px dashed rgba(108,117,125,.65);
+      outline-offset: 3px;
+      filter: brightness(1.06);
+    }
+    .overall-edit-hint {
+      font-size: .7em;
+      color: #6c757d;
+      margin-left: 4px;
+      vertical-align: middle;
+    }
+  </style>
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h1 class="h4">上传体检结果</h1>
+      <p class="text-muted">上传体检机构的结果表，系统将按照标准严格评级，支持在线预览。确认无误后归档到历史体检底表。</p>
+    </div>
+    <a href="/ssc" class="btn btn-outline-secondary">返回工作台</a>
+  </div>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+  <% } %>
+
+  <% if (result && result.pendingArchive) { %>
+    <div class="alert alert-warning d-flex align-items-center">
+      <span class="me-2">⏳</span>
+      <div>
+        <strong>预览完成：共 <%= result.imported %> 人。</strong>
+        请核对下方评级结果，确认无误后点「确认归档到历史底表」按钮。
+        <br><small class="text-muted">归档后：①写入本次体检结果 ②自动复制一份到历史体检底表 ③需预约 / 免检数量自动重算。</small>
+      </div>
+    </div>
+  <% } else if (result && !result.pendingArchive) { %>
+    <div class="alert alert-success">上传完成：总计 <%= result.imported %> 条。</div>
+  <% } %>
+
+  <% if (!preview || !preview.length) { %>
+    <form action="/ssc/import-results" method="post" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label class="form-label">上传 Excel 文件</label>
+        <input type="file" name="file" class="form-control" accept=".xlsx" required />
+      </div>
+      <button type="submit" class="btn btn-primary">上传并预览</button>
+    </form>
+  <% } %>
+
+  <% if (preview && preview.length) { %>
+    <% const overallOptions = ['未参检','合格','合格-有风险','复查','红灯']; %>
+    <div class="mt-4">
+      <h2 class="h5">结果预览</h2>
+      <% if (preview._aiError) { %>
+        <div class="alert alert-warning">
+          <strong>DeepSeek 深度思考评级未生效：</strong><%= preview._aiError %><br>
+          <small>当前已自动回退到本地规则引擎。如需使用 DeepSeek，请在项目根目录 .env 文件中配置 DEEPSEEK_API_KEY 后重启服务。</small>
+        </div>
+      <% } else if (preview.some((r) => r.aiJudged)) { %>
+        <div class="alert alert-info">
+          <small>✅ 本次评级已使用 DeepSeek 深度思考模型，严格按上传的体检标准判定。</small>
+        </div>
+      <% } else { %>
+        <div class="alert alert-secondary">
+          <small>当前未配置 DeepSeek API Key，使用本地规则引擎评级。如需启用 DeepSeek，请在 .env 中配置 DEEPSEEK_API_KEY。</small>
+        </div>
+      <% } %>
+      <div class="table-responsive">
+        <table class="table table-bordered table-sm align-middle" style="min-width: 1400px;">
+          <thead class="table-light">
+            <tr>
+              <th style="width: 50px;">序号</th>
+              <th style="width: 170px;">身份证号</th>
+              <th style="width: 90px;">体检人姓名</th>
+              <th style="width: 50px;">性别</th>
+              <th style="width: 50px;">年龄</th>
+              <th style="width: 110px;">体检日期</th>
+              <th style="width: 110px;">拟入职时间</th>
+              <th style="width: 110px;">体检结果</th>
+              <th style="width: 280px;">目前已存在异常</th>
+              <th style="width: 220px;">复查建议及相关风险</th>
+              <th style="width: 180px;">备注</th>
+              <th style="width: 140px;">部门</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% preview.forEach((row, idx) => { %>
+              <tr data-row-index="<%= idx %>">
+                <td><%= idx + 1 %></td>
+                <td><code><%= row.id_card %></code></td>
+                <td class="name-cell" data-index="<%= idx %>"><%= row.name %></td>
+                <td><%= row.gender || '' %></td>
+                <td><%= row.age != null && row.age !== '' ? row.age : '' %></td>
+                <td><%= row.check_date || '' %></td>
+                <td><%= row.expected_onboard_date || '' %></td>
+                <td>
+                  <%
+                    let badgeClass = 'bg-info text-dark';
+                    if (row.overall === '合格') badgeClass = 'bg-success';
+                    else if (row.overall === '合格-有风险') badgeClass = 'bg-warning text-dark';
+                    else if (row.overall === '复查') badgeClass = 'bg-warning text-dark';
+                    else if (row.overall === '红灯') badgeClass = 'bg-danger';
+                    else if (row.overall === '未参检') badgeClass = 'bg-secondary';
+                  %>
+                  <span class="overall-edit d-inline-block" data-index="<%= idx %>">
+                    <span class="overall-badge-view" data-index="<%= idx %>">
+                      <span class="badge <%= badgeClass %> overall-badge" data-index="<%= idx %>" style="cursor: pointer;" title="⚙ 点击修改评级"><%= row.overall %> <span class="overall-edit-hint">⚙</span></span>
+                    </span>
+                    <select class="form-select form-select-sm overall-select d-none" data-index="<%= idx %>" style="min-width: 130px;">
+                      <% overallOptions.forEach(function(opt){ %>
+                        <option value="<%= opt %>" <%= row.overall === opt ? 'selected' : '' %>><%= opt %></option>
+                      <% }) %>
+                    </select>
+                  </span>
+                </td>
+                <td>
+                  <div class="summary-cell" data-index="<%= idx %>" style="white-space: pre-wrap;"><small><%= row.summary || '' %></small></div>
+                </td>
+                <td>
+                  <div class="risk-cell" data-index="<%= idx %>" style="white-space: pre-wrap;"><small><%= row.risk || '' %></small></div>
+                </td>
+                <td>
+                  <div class="remark-cell" data-index="<%= idx %>" style="white-space: pre-wrap;"><small><%= row.abnormal || '' %></small></div>
+                </td>
+                <td>
+                  <small><%= row.department || '' %></small>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="d-flex gap-2 mt-3">
+        <form action="/ssc/archive-results" method="post" class="d-inline"
+              onsubmit="return confirm('确认将本次 <%= preview.length %> 人体检结果归档到历史体检底表吗？\n归档后：\n①写入本次体检结果（source=upload）\n②自动复制一份到历史体检底表（source=history）\n③需预约 / 免检数量自动重算\n\n此操作不可撤销。');">
+          <button type="submit" class="btn btn-success">✅ 确认归档到历史底表</button>
+        </form>
+        <form action="/ssc/discard-results" method="post" class="d-inline"
+              onsubmit="return confirm('确认放弃本次预览？所有预览数据将丢失，需要重新上传。');">
+          <button type="submit" class="btn btn-outline-secondary">放弃</button>
+        </form>
+      </div>
+    </div>
+  <% } %>
+</div>
+
+<script>
+// SSC 预览页：
+//   1. 默认显示 badge（点击 badge 进入编辑态 → 变成 select）
+//   2. select change → fetch /ssc/update-preview-result → 拿到新 badge + 风险提示 → 回填 badge，风险同步刷新
+//   3. 「体检结果」= AI 评级（badge 可点击修改）；「目前已存在异常」= 体检结果汇总（summary，server 一次性渲染，不依赖 overall）
+document.addEventListener('click', function(ev) {
+  const badge = ev.target.closest('.overall-badge');
+  if (!badge) return;
+  const idx = badge.dataset.index;
+  const wrap = document.querySelector('.overall-edit[data-index="' + idx + '"]');
+  if (!wrap) return;
+  wrap.querySelector('.overall-badge-view').classList.add('d-none');
+  const sel = wrap.querySelector('.overall-select');
+  sel.classList.remove('d-none');
+  sel.focus();
+});
+
+document.addEventListener('change', async function(ev) {
+  const sel = ev.target.closest('.overall-select');
+  if (!sel) return;
+  const idx = Number(sel.dataset.index);
+  const newOverall = sel.value;
+  try {
+    const res = await fetch('/ssc/update-preview-result', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: idx, overall: newOverall })
+    });
+    const data = await res.json();
+    if (!data.success) {
+      alert(data.message || '修改失败');
+      return;
+    }
+    // 刷新 badge 视图（同一格内）
+    const wrap = document.querySelector('.overall-edit[data-index="' + idx + '"]');
+    const view = wrap.querySelector('.overall-badge-view');
+    view.innerHTML = '<span class="badge ' + data.badgeClass + ' overall-badge" data-index="' + idx + '" style="cursor: pointer;" title="点击修改评级">' + data.overall + '</span>';
+    view.classList.remove('d-none');
+    sel.classList.add('d-none');
+    // 同步刷新「复查建议及相关风险」（summary 来自 Excel 汇总列，不依赖 overall，无需刷新）
+    const risk = document.querySelector('.risk-cell[data-index="' + idx + '"]');
+    if (risk) risk.textContent = data.risk || '';
+  } catch (err) {
+    alert('网络错误：' + err.message);
+  }
+});
+
+// 失焦时若 select 还在显示、且本次 change 还没把它隐藏（用户没改），就回到 badge 视图
+// 注意：change 已经把 select d-none、并把 view 拿掉 d-none；这个监听器只在用户点开但没改时收回
+document.addEventListener('focusout', function(ev) {
+  const sel = ev.target.closest('.overall-select');
+  if (!sel) return;
+  setTimeout(function() {
+    if (sel.classList.contains('d-none')) return;
+    const idx = sel.dataset.index;
+    const wrap = document.querySelector('.overall-edit[data-index="' + idx + '"]');
+    if (!wrap) return;
+    wrap.querySelector('.overall-badge-view').classList.remove('d-none');
+    sel.classList.add('d-none');
+  }, 200);
+});
+</script>
+
+<%- include('../partials/footer') %>

@@ -1,0 +1,242 @@
+<%- include('../partials/header') %>
+
+<%
+// 显示辅助：从各种 raw 格式提取日期/时间
+function fmtDate(v) {
+  if (v === null || v === undefined || v === '') return '';
+  if (v instanceof Date) {
+    const yy = v.getFullYear();
+    const mm = String(v.getMonth() + 1).padStart(2, '0');
+    const dd = String(v.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+  const s = String(v);
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (m) return m[1];
+  return s;
+}
+function fmtTime(v) {
+  if (v === null || v === undefined || v === '') return '';
+  const s = String(v);
+  // ISO 完整串（"1899-12-30T08:00:00.000Z"）→ 取 HH:MM
+  const m1 = s.match(/T(\d{2}:\d{2})/);
+  if (m1) return m1[1];
+  // ExcelJS 返回的 "08:00" 或 "8:00"
+  const m2 = s.match(/(\d{1,2}):(\d{2})/);
+  if (m2) return m2[1].padStart(2, '0') + ':' + m2[2];
+  return s;
+}
+%>
+
+<div class="container-fluid py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div>
+      <h1 class="h4">招聘管理
+        <% if (typeof viewAs !== 'undefined' && viewAs) { %>
+          <span class="badge bg-warning text-dark align-middle">以招聘账号「<%= viewAs %>」视角查看（只读）</span>
+        <% } else if (typeof isGlobalView !== 'undefined' && isGlobalView) { %>
+          <span class="badge bg-secondary align-middle">SSC 全局视角 · 查看全部招聘数据</span>
+        <% } else { %>
+          <span class="badge bg-info align-middle">我的名单 · 仅显示当前账号导入的数据</span>
+        <% } %>
+      </h1>
+      <p class="text-muted mb-0">上传预约名单，系统自动剔除近 90 天内已通过体检的人员。请下载右侧模板填写后导入。</p>
+      <% if (typeof canSwitch !== 'undefined' && canSwitch) { %>
+        <form method="get" action="/recruiter" class="mt-2 d-flex align-items-center gap-2">
+          <label class="small text-muted mb-0">视角切换：</label>
+          <select name="view_as" class="form-select form-select-sm w-auto" onchange="this.form.submit()">
+            <option value="">SSC 全局视角（全部招聘数据）</option>
+            <% (recruiterUsers || []).forEach(function(u) { %>
+              <option value="<%= u.username %>" <%= (typeof viewAs !== 'undefined' && viewAs === u.username) ? 'selected' : '' %>><%= u.display_name %>（<%= u.username %>）</option>
+            <% }) %>
+          </select>
+          <% if (typeof viewAs !== 'undefined' && viewAs) { %>
+            <a href="/recruiter" class="btn btn-sm btn-outline-secondary">退出该视角</a>
+          <% } %>
+        </form>
+      <% } %>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      <a href="/templates/体检预约模版.xlsx" class="btn btn-outline-primary" download>
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-download me-1" viewBox="0 0 16 16">
+          <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+          <path d="M7.646 11.854a.5.5 0 0 0 .708 0l3-3a.5.5 0 0 0-.708-.708L8.5 10.293V1.5a.5.5 0 0 0-1 0v8.793L5.354 8.146a.5.5 0 1 0-.708.708l3 3z"/>
+        </svg>
+        下载体检预约模板
+      </a>
+      <a href="/recruiter/import" class="btn btn-primary">导入名单</a>
+    </div>
+  </div>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+  <% } %>
+  <% if (typeof deleted !== 'undefined' && deleted) { %>
+    <div class="alert alert-success">已删除该员工。</div>
+  <% } %>
+  <% if (typeof cleared !== 'undefined' && cleared) { %>
+    <div class="alert alert-success">已清空「<%= cleared %>」名单<%= typeof count !== 'undefined' && count ? '，共删除 ' + count + ' 条记录' : '' %>。</div>
+  <% } %>
+
+  <div class="row g-3 mb-4">
+    <div class="col-md-4">
+      <div class="card p-3">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="text-muted">需预约体检</div>
+            <div class="fs-3 fw-bold"><%= pendingCount %></div>
+          </div>
+          <form action="/recruiter/clear/needs_appointment" method="post" class="m-0" onsubmit="return confirm('确认一键清空「需预约体检」名单吗？\n共 <%= pendingCount %> 条员工记录会被删除，关联的体检记录也会一并清空，且不可恢复。');">
+            <% if (typeof viewAs !== 'undefined' && viewAs) { %>
+              <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="当前为招聘账号视角（只读），不可清空">只读</button>
+            <% } else { %>
+              <button type="submit" class="btn btn-sm btn-danger">🗑 一键清空</button>
+            <% } %>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card p-3">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="text-muted">免检人员</div>
+            <div class="fs-3 fw-bold"><%= exemptCount %></div>
+          </div>
+          <form action="/recruiter/clear/exempt" method="post" class="m-0" onsubmit="return confirm('确认一键清空「免检人员」名单吗？\n共 <%= exemptCount %> 条员工记录会被删除，关联的体检记录也会一并清空，且不可恢复。');">
+            <% if (typeof viewAs !== 'undefined' && viewAs) { %>
+              <button type="button" class="btn btn-sm btn-outline-secondary" disabled title="当前为招聘账号视角（只读），不可清空">只读</button>
+            <% } else { %>
+              <button type="submit" class="btn btn-sm btn-danger">🗑 一键清空</button>
+            <% } %>
+          </form>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card p-3">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <div class="text-muted">
+              <% if (typeof viewAs !== 'undefined' && viewAs) { %>
+                历史已预约（<%= viewAs %>）
+              <% } else if (typeof isGlobalView !== 'undefined' && isGlobalView) { %>
+                历史已预约（全部招聘）
+              <% } else { %>
+                历史已预约（我的）
+              <% } %>
+            </div>
+            <div class="fs-3 fw-bold"><%= typeof archivedCount !== 'undefined' ? archivedCount : 0 %></div>
+          </div>
+          <span class="badge bg-light text-muted" title="所有真实批次中已完成本次体检并归档的人数；已剔除因近90天内历史合格而被自动免试的人员">累计</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-4">
+    <h5 class="mb-3 p-3 pb-0">需预约体检名单（<%= pendingList.length %> 人）</h5>
+    <% if (pendingList.length > 0) { %>
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover table-sm align-middle mb-0 text-nowrap">
+          <thead class="table-light">
+            <tr>
+              <th>序号</th>
+              <th>体检人姓名</th>
+              <th>身份证号</th>
+              <th>手机号</th>
+              <th>拟入职时间<br><small class="text-muted fw-normal">（合同签订时间）</small></th>
+              <th>办理入职时间</th>
+              <th>工作地</th>
+              <th>员工分类</th>
+              <th>名单提供人<br><small class="text-muted fw-normal">（招聘负责人）</small></th>
+              <th>提供日期</th>
+              <th>体检日期</th>
+              <th>体检时间</th>
+              <th>体检地址</th>
+              <th>性别</th>
+              <th>岗位</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% pendingList.forEach(function(person, idx) { %>
+              <tr>
+                <td><%= idx + 1 %></td>
+                <td><%= person.name %></td>
+                <td><%= person.id_card %></td>
+                <td><%= person.phone %></td>
+                <td><%= fmtDate(person.expected_onboard_date) %></td>
+                <td><%= fmtDate(person.actual_onboard_date) %></td>
+                <td><%= person.work_location || '' %></td>
+                <td><%= person.employee_category || '' %></td>
+                <td><%= person.recruiter || '' %></td>
+                <td><%= fmtDate(person.provided_date) %></td>
+                <td><%= fmtDate(person.check_date) %></td>
+                <td><%= fmtTime(person.check_time) %></td>
+                <td><%= person.check_address || '' %></td>
+                <td><%= person.gender || '' %></td>
+                <td><%= person.position || '' %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } else { %>
+      <div class="text-muted p-3">暂无人员</div>
+    <% } %>
+  </div>
+
+  <div class="card">
+    <h5 class="mb-3 p-3 pb-0">免检人员名单（<%= exemptList.length %> 人）</h5>
+    <% if (exemptList.length > 0) { %>
+      <div class="table-responsive">
+        <table class="table table-bordered table-hover table-sm align-middle mb-0 text-nowrap">
+          <thead class="table-light">
+            <tr>
+              <th>序号</th>
+              <th>体检人姓名</th>
+              <th>身份证号</th>
+              <th>手机号</th>
+              <th>拟入职时间<br><small class="text-muted fw-normal">（合同签订时间）</small></th>
+              <th>办理入职时间</th>
+              <th>工作地</th>
+              <th>员工分类</th>
+              <th>名单提供人<br><small class="text-muted fw-normal">（招聘负责人）</small></th>
+              <th>提供日期</th>
+              <th>体检日期</th>
+              <th>体检时间</th>
+              <th>体检地址</th>
+              <th>性别</th>
+              <th>岗位</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% exemptList.forEach(function(person, idx) { %>
+              <tr>
+                <td><%= idx + 1 %></td>
+                <td><%= person.name %></td>
+                <td><%= person.id_card %></td>
+                <td><%= person.phone %></td>
+                <td><%= fmtDate(person.expected_onboard_date) %></td>
+                <td><%= fmtDate(person.actual_onboard_date) %></td>
+                <td><%= person.work_location || '' %></td>
+                <td><%= person.employee_category || '' %></td>
+                <td><%= person.recruiter || '' %></td>
+                <td><%= fmtDate(person.provided_date) %></td>
+                <td><%= fmtDate(person.check_date) %></td>
+                <td><%= fmtTime(person.check_time) %></td>
+                <td><%= person.check_address || '' %></td>
+                <td><%= person.gender || '' %></td>
+                <td><%= person.position || '' %></td>
+              </tr>
+            <% }); %>
+          </tbody>
+        </table>
+      </div>
+    <% } else { %>
+      <div class="text-muted p-3">暂无人员</div>
+    <% } %>
+  </div>
+</div>
+
+<%- include('../partials/footer') %>

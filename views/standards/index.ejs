@@ -1,0 +1,106 @@
+<%- include('../partials/header') %>
+
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h1 class="h4">体检标准规则管理</h1>
+      <p class="text-muted">支持标准规则搜索、查看、编辑、删除。</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="/standards/new" class="btn btn-primary">新增标准规则</a>
+      <a href="/standards/upload" class="btn btn-outline-primary">批量导入（Excel）</a>
+      <% if (standards.length > 0) { %>
+        <button type="button" class="btn btn-outline-danger" data-bs-toggle="modal" data-bs-target="#clearAllModal">
+          🗑 一键清空
+        </button>
+      <% } %>
+    </div>
+  </div>
+
+  <% if (typeof cleared !== 'undefined' && cleared) { %>
+    <div class="alert alert-success">已清空 <%= cleared %> 条标准规则。</div>
+  <% } %>
+
+  <form class="row gx-2 gy-2 mb-3" method="get" action="/standards">
+    <div class="col-auto flex-grow-1">
+      <input type="text" name="search" class="form-control" placeholder="按标准名称或项目名称搜索" value="<%= search %>" />
+    </div>
+    <div class="col-auto">
+      <button type="submit" class="btn btn-outline-secondary">搜索</button>
+    </div>
+  </form>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+  <% } %>
+
+  <div class="table-responsive">
+    <table class="table table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>入职参照异常指标范围</th>
+          <th>体检结果评级</th>
+          <th>相关风险提示</th>
+          <th>状态</th>
+          <th class="text-end">操作</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (standards.length === 0) { %>
+          <tr><td colspan="5" class="text-center text-muted py-4">暂无标准规则，点击"新增标准规则"或"批量导入"开始。</td></tr>
+        <% } %>
+        <% standards.forEach((standard) => { %>
+          <tr>
+            <td><%= standard.item_name || standard.name %></td>
+            <td>
+              <% const rate = standard.unit || (standard.red_threshold ? '红灯' : standard.recheck_threshold ? '复查' : standard.pass_range); %>
+              <% if (rate && rate.includes('红灯')) { %>
+                <span class="badge bg-danger"><%= rate %></span>
+              <% } else if (rate && rate.includes('复查')) { %>
+                <span class="badge bg-warning text-dark"><%= rate %></span>
+              <% } else if (rate && rate.includes('有风险')) { %>
+                <span class="badge bg-info text-dark"><%= rate %></span>
+              <% } else if (rate && rate.includes('合格')) { %>
+                <span class="badge bg-success"><%= rate %></span>
+              <% } else { %>
+                <span class="badge bg-secondary"><%= rate || '-' %></span>
+              <% } %>
+            </td>
+            <td><span class="text-muted"><%= standard.risk_text || '-' %></span></td>
+            <td><span class="badge <%= standard.is_active ? 'bg-success' : 'bg-secondary' %>"><%= standard.is_active ? '启用' : '停用' %></span></td>
+            <td class="text-end">
+              <a href="/standards/<%= standard.id %>/edit" class="btn btn-sm btn-outline-primary me-2">编辑</a>
+              <form action="/standards/<%= standard.id %>/delete" method="post" class="d-inline" onsubmit="return confirm('确认删除此标准规则吗？');">
+                <button type="submit" class="btn btn-sm btn-outline-danger">删除</button>
+              </form>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<%- include('../partials/footer') %>
+
+<!-- 一键清空确认弹窗 -->
+<div class="modal fade" id="clearAllModal" tabindex="-1" aria-labelledby="clearAllModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-danger text-white">
+        <h5 class="modal-title" id="clearAllModalLabel">⚠️ 确认清空所有标准？</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p>此操作将<strong>删除全部 <%= standards.length %> 条</strong>体检标准记录，<strong class="text-danger">不可恢复</strong>。</p>
+        <p class="text-muted mb-0">如果只是想清理上传错误的数据重新导入，点下方"确认清空"即可。清空后可以重新批量导入。</p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+        <form action="/standards/clear-all/delete" method="post" class="d-inline">
+          <button type="submit" class="btn btn-danger">确认清空（不可恢复）</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>

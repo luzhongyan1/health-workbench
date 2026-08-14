@@ -1,0 +1,38 @@
+<%- include('../partials/header') %>
+
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h1 class="h4">上传历史体检底表</h1>
+      <p class="text-muted">将历史体检预约和结果底表上传到系统，供后续比对与筛选使用。</p>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="/ssc/history-list" class="btn btn-outline-primary">查看已上传记录</a>
+      <a href="/ssc" class="btn btn-outline-secondary">返回工作台</a>
+    </div>
+  </div>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+  <% } %>
+  <% if (result) { %>
+    <div class="alert alert-success">
+      ✅ 已导入 <strong><%= result.imported %></strong> 条新记录，
+      更新 <strong><%= result.updated %></strong> 条人员信息，
+      跳过重复 <strong><%= result.skipped %></strong> 条。
+    </div>
+  <% } %>
+
+  <form action="/ssc/upload-history" method="post" enctype="multipart/form-data">
+    <div class="mb-3">
+      <label class="form-label">上传 Excel 文件</label>
+      <input type="file" name="file" class="form-control" accept=".xlsx" required />
+      <div class="form-text">
+        请使用历史体检底表 12 列模板：序号 / 身份证号 / 体检人姓名 / 性别 / 年龄 / 体检日期 / 拟入职时间 / 体检结果 / 目前已存在异常 / 复查建议及相关风险 / 备注 / 部门（"身份证号"列必填，"体检人姓名"列必填）。
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">上传并归档</button>
+  </form>
+</div>
+
+<%- include('../partials/footer') %>

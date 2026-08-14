@@ -1,0 +1,27 @@
+{
+  "name": "employee-health-platform",
+  "version": "1.0.0",
+  "description": "员工入职体检管理平台",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node --watch app.js",
+    "db:init": "node db/migrations/001_init.js && node db/migrations/002_users_roles.js && node db/migrations/003_extend_employees.js && node db/migrations/004_widen_employee_fields.js && node db/migrations/005_complete_schema.js && node db/seeds/seed_users.js",
+    "test": "mocha --recursive --exit tests/"
+  },
+  "dependencies": {
+    "bcrypt": "^6.0.0",
+    "dotenv": "^16.4.0",
+    "ejs": "^3.1.2",
+    "exceljs": "^4.4.0",
+    "express": "^4.21.1",
+    "express-session": "^1.17.3",
+    "multer": "^2.2.0",
+    "pg": "^8.10.0"
+  },
+  "devDependencies": {
+    "chai": "^6.2.2",
+    "mocha": "^11.8.0",
+    "supertest": "^7.2.2"
+  }
+}

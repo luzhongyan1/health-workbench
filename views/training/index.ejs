@@ -1,0 +1,171 @@
+<%- include('../partials/header') %>
+
+<%
+// 助显：ExcelJS cell 提取字符串
+function pickText(v) {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'object') {
+    if (v.text) return String(v.text).trim();
+    if (v.result !== undefined) return String(v.result).trim();
+    if (Array.isArray(v.richText)) return v.richText.map(rt => rt.text || '').join('').trim();
+    if (v.formula) return '';
+    return '';
+  }
+  return String(v).trim();
+}
+function pickDetailCol(row, idx) {
+  const d = row && row.detail_json;
+  if (Array.isArray(d)) return pickText(d[idx]);
+  if (d && typeof d === 'object') {
+    if (d[idx] !== undefined) return pickText(d[idx]);
+    return pickText(d[String(idx)]);
+  }
+  return '';
+}
+function fmtDate(v) {
+  if (!v) return '';
+  if (v instanceof Date) {
+    const yy = v.getFullYear();
+    const mm = String(v.getMonth() + 1).padStart(2, '0');
+    const dd = String(v.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  }
+  const s = String(v);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}` : s;
+}
+%>
+
+<div class="container py-4">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+      <h1 class="h4">培训视图</h1>
+      <p class="text-muted">在线查看本批体检员工结果，并下载当前查询结果。</p>
+    </div>
+    <a href="/training/download?name=<%= filters.name %>&department=<%= filters.department %>&overall_result=<%= filters.overall_result %>&batch=<%= effectiveBatch %>" class="btn btn-primary">下载体检结果汇总表</a>
+  </div>
+
+  <% if (typeof error !== 'undefined' && error) { %>
+    <div class="alert alert-danger"><%= error %></div>
+  <% } %>
+
+  <!-- 权限提示 -->
+  <div class="alert alert-info d-flex align-items-center" role="alert">
+    <span class="me-2">🔒</span>
+    <div>
+      <strong>权限说明：</strong>培训师仅可见<b>本次上传的体检结果</b>，
+      <b>历史体检结果不可见</b>。如需查看其他批次，请在下方下拉框切换。
+    </div>
+  </div>
+
+  <form class="row g-3 mb-4" method="get" action="/training">
+    <div class="col-md-3">
+      <label class="form-label small text-muted mb-1">批次（按体检日期）</label>
+      <select name="batch" class="form-select" onchange="this.form.submit()">
+        <% if (batches.length === 0) { %>
+          <option value="">（暂无批次）</option>
+        <% } %>
+        <% batches.forEach((b) => { %>
+          <option value="<%= b.value %>" <%= b.value === effectiveBatch ? 'selected' : '' %>><%= b.label %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small text-muted mb-1">姓名</label>
+      <input name="name" type="text" class="form-control" placeholder="姓名" value="<%= filters.name %>" />
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small text-muted mb-1">部门</label>
+      <select name="department" class="form-select">
+        <option value="">全部部门</option>
+        <% if (typeof departments !== 'undefined' && departments) { departments.forEach((d) => { %>
+          <option value="<%= d %>" <%= filters.department === d ? 'selected' : '' %>><%= d %></option>
+        <% }) } %>
+      </select>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label small text-muted mb-1">体检结果</label>
+      <select name="overall_result" class="form-select">
+        <option value="">全部结果</option>
+        <% ['红灯', '复查', '合格-有风险', '合格', '未参检'].forEach((r) => { %>
+          <option value="<%= r %>" <%= filters.overall_result === r ? 'selected' : '' %>><%= r %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div class="col-md-3 d-flex align-items-end gap-2">
+      <button class="btn btn-outline-secondary flex-fill" type="submit">筛选</button>
+      <a class="btn btn-outline-secondary flex-fill" href="/training">重置</a>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table class="table table-bordered table-sm align-middle" style="min-width: 1400px;">
+      <thead class="table-light">
+        <tr>
+          <th style="width: 50px;">序号</th>
+          <th style="width: 170px;">身份证号</th>
+          <th style="width: 90px;">体检人姓名</th>
+          <th style="width: 50px;">性别</th>
+          <th style="width: 50px;">年龄</th>
+          <th style="width: 110px;">体检日期</th>
+          <th style="width: 110px;">拟入职时间</th>
+          <th style="width: 110px;">体检结果</th>
+          <th style="width: 280px;">目前已存在异常</th>
+          <th style="width: 220px;">复查建议及相关风险</th>
+          <th style="width: 180px;">备注</th>
+          <th style="width: 140px;">部门</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (records.length === 0) { %>
+          <tr><td colspan="12" class="text-center text-muted py-4">暂无符合条件的结果。</td></tr>
+        <% } %>
+        <% records.forEach((record, idx) => {
+             // 优先使用 detail_json 中的完整字段（新数据），否则从数组列位取（旧历史底表数据）
+             const gender = record.gender || pickDetailCol(record, 4) || '';
+             const age = record.age != null && record.age !== '' ? record.age : (pickDetailCol(record, 5) || '');
+             const expectedOnboard = record.expected_onboard_date || pickDetailCol(record, 7) || '';
+             let summary = record.detail_json && !Array.isArray(record.detail_json) && record.detail_json.summary ? pickText(record.detail_json.summary) : pickDetailCol(record, 9);
+             let risk = record.detail_json && !Array.isArray(record.detail_json) && record.detail_json.risk ? pickText(record.detail_json.risk) : pickDetailCol(record, 10);
+             let abnormal = record.detail_json && !Array.isArray(record.detail_json) && record.detail_json.abnormal ? pickText(record.detail_json.abnormal) : pickDetailCol(record, 11);
+             const department = record.department || pickDetailCol(record, 12) || '';
+             let badgeClass = 'bg-info text-dark';
+             if (record.overall_result === '合格') badgeClass = 'bg-success';
+             else if (record.overall_result === '合格-有风险') badgeClass = 'bg-warning text-dark';
+             else if (record.overall_result === '复查') badgeClass = 'bg-warning text-dark';
+             else if (record.overall_result === '红灯') badgeClass = 'bg-danger';
+             else if (record.overall_result === '未参检') badgeClass = 'bg-secondary';
+        %>
+          <tr>
+            <td><%= idx + 1 %></td>
+            <td><code><%= record.id_card %></code></td>
+            <td><%= record.name %></td>
+            <td><%= gender %></td>
+            <td><%= age %></td>
+            <td><%= fmtDate(record.check_date) %></td>
+            <td><%= fmtDate(expectedOnboard) %></td>
+            <td><span class="badge <%= badgeClass %>"><%= record.overall_result || '' %></span></td>
+            <td><div style="white-space: pre-wrap;"><small><%= summary %></small></div></td>
+            <td><div style="white-space: pre-wrap;"><small><%= risk %></small></div></td>
+            <td><div style="white-space: pre-wrap;"><small><%= abnormal %></small></div></td>
+            <td><small><%= department %></small></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+
+  <% if (pagination.totalPages > 1) { %>
+    <nav>
+      <ul class="pagination">
+        <% for (let i = 1; i <= pagination.totalPages; i++) { %>
+          <li class="page-item <%= i === pagination.currentPage ? 'active' : '' %>">
+            <a class="page-link" href="/training?<%= pagination.query %>&page=<%= i %>"><%= i %></a>
+          </li>
+        <% } %>
+      </ul>
+    </nav>
+  <% } %>
+</div>
+
+<%- include('../partials/footer') %>
