@@ -1,0 +1,9 @@
+{
+  "$schema": "https://zeabur.com/schema/zeabur.json",
+  "build": {
+    "command": "npm install --omit=dev"
+  },
+  "start": {
+    "command": "node app.js"
+  }
+}

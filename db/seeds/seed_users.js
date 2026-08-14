@@ -5,18 +5,22 @@ async function runSeed() {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // 初始密码可用环境变量 SEED_PASSWORD 自定义（生产部署建议设置强密码），默认 password
+    const seedPassword = process.env.SEED_PASSWORD || 'password';
     const users = [
-      { username: 'ssc_admin', password: 'password', role: 'ssc', display_name: 'SSC 管理' },
-      { username: 'recruiter1', password: 'password', role: 'recruiter', display_name: '招聘人员A' },
-      { username: 'trainer1', password: 'password', role: 'trainer', display_name: '培训人员A' },
+      { username: 'admin', password: seedPassword, role: 'ssc', display_name: '超级管理员' },
+      { username: 'ssc_admin', password: seedPassword, role: 'ssc', display_name: 'SSC 管理' },
+      { username: 'recruiter1', password: seedPassword, role: 'recruiter', display_name: '招聘人员A' },
+      { username: 'trainer1', password: seedPassword, role: 'trainer', display_name: '培训人员A' },
     ];
 
     for (const u of users) {
       const hash = await bcrypt.hash(u.password, 10);
+      // 仅新库插入；已存在的账号（含已改过的密码）一律不动，避免重启把密码重置回默认
       await client.query(
         `INSERT INTO users (username, password, role, display_name)
          VALUES ($1,$2,$3,$4)
-         ON CONFLICT (username) DO UPDATE SET password = EXCLUDED.password, role = EXCLUDED.role, display_name = EXCLUDED.display_name`,
+         ON CONFLICT (username) DO NOTHING`,
         [u.username, hash, u.role, u.display_name]
       );
     }
