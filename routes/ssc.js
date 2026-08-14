@@ -785,7 +785,7 @@ router.post('/import-results', upload.single('file'), async (req, res) => {
             name: r.name,
             id_card: r.id_card,
             overall: ai.overall,
-            summary: r.abnormal || r.summary || '', // 目前已存在异常：保留原始异常描述
+            summary: r.summary || r.abnormal || '', // 目前已存在异常：保留原始异常描述（优先用 summary 列）
             abnormal: matchedNames.join('; ') || '', // 体检标准中的异常项+缺项项目
             missing: '', // 缺项已合并到 abnormal 列展示
             risk: ai.riskText || '', // 异常项对应的风险提示
@@ -804,7 +804,7 @@ router.post('/import-results', upload.single('file'), async (req, res) => {
             name: r.name,
             id_card: r.id_card,
             overall: judged.overall,
-            summary: r.abnormal || r.summary || '',
+            summary: r.summary || r.abnormal || '', // 目前已存在异常：优先用 summary 列，保持与评级输入一致
             abnormal: judged.abnormalItems.concat(judged.missingItems).join('; ') || '',
             missing: '',
             risk: judged.riskText || '',
