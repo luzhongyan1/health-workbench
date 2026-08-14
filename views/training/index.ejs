@@ -42,8 +42,19 @@ function fmtDate(v) {
       <h1 class="h4">培训视图</h1>
       <p class="text-muted">在线查看本批体检员工结果，并下载当前查询结果。</p>
     </div>
-    <a href="/training/download?name=<%= filters.name %>&department=<%= filters.department %>&overall_result=<%= filters.overall_result %>&batch=<%= effectiveBatch %>" class="btn btn-primary">下载体检结果汇总表</a>
+    <div class="d-flex gap-2">
+      <% if (typeof currentUser !== 'undefined' && (currentUser.role === 'ssc' || currentUser.role === 'admin')) { %>
+        <form method="post" action="/training/delete-latest-batch" onsubmit="return confirm('确定要删除当前最新批次的体检结果吗？\n删除后培训端将不可见，但员工基础信息仍会保留。\n此操作不可恢复。');">
+          <button type="submit" class="btn btn-outline-danger">删除当前批次</button>
+        </form>
+      <% } %>
+      <a href="/training/download?name=<%= filters.name %>&department=<%= filters.department %>&overall_result=<%= filters.overall_result %>&batch=<%= effectiveBatch %>" class="btn btn-primary">下载体检结果汇总表</a>
+    </div>
   </div>
+
+  <% if (typeof flash !== 'undefined' && flash) { %>
+    <div class="alert alert-<%= flash.type || 'info' %>"><%= flash.message %></div>
+  <% } %>
 
   <% if (typeof error !== 'undefined' && error) { %>
     <div class="alert alert-danger"><%= error %></div>

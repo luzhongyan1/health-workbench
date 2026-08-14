@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../db/config');
 const ExcelJS = require('exceljs');
+const { ensureRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -150,6 +151,7 @@ router.get('/', async (req, res) => {
       batches,
       departments,
       effectiveBatch,
+      user: req.user,
       pagination: {
         currentPage: Number(page),
         totalPages,
@@ -260,6 +262,42 @@ router.get('/download', async (req, res) => {
     res.end();
   } catch (error) {
     res.status(500).send(`下载失败：${error.message}`);
+  }
+});
+
+// SSC/管理员：一键删除当前最新批次的体检结果（只删 health_checks，保留 employees 基础信息）
+router.post('/delete-latest-batch', ensureRole('ssc'), async (req, res) => {
+  try {
+    // 取最新 source='upload' 批次日期
+    const { rows: latestRows } = await pool.query(`
+      SELECT check_date::text AS batch
+      FROM (
+        SELECT DISTINCT ON (employee_id) employee_id, check_date
+        FROM health_checks
+        WHERE source = 'upload'
+          AND check_date IS NOT NULL
+        ORDER BY employee_id, id DESC
+      ) sub
+      GROUP BY check_date
+      ORDER BY check_date DESC
+      LIMIT 1
+    `);
+    if (!latestRows.length) {
+      req.session.flash = { type: 'warning', message: '当前没有可删除的批次。' };
+      return res.redirect('/training');
+    }
+    const latestBatch = latestRows[0].batch;
+
+    const { rowCount } = await pool.query(`
+      DELETE FROM health_checks
+      WHERE source = 'upload' AND check_date = $1::date
+    `, [latestBatch]);
+
+    req.session.flash = { type: 'success', message: `已成功删除 ${latestBatch} 批次的 ${rowCount} 条体检结果。` };
+    return res.redirect('/training');
+  } catch (error) {
+    req.session.flash = { type: 'danger', message: `删除失败：${error.message}` };
+    return res.redirect('/training');
   }
 });
 

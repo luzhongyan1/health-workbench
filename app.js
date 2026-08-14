@@ -35,6 +35,15 @@ app.use((req, res, next) => {
   next();
 });
 
+// expose one-time flash messages to templates
+app.use((req, res, next) => {
+  if (req.session && req.session.flash) {
+    res.locals.flash = req.session.flash;
+    delete req.session.flash;
+  }
+  next();
+});
+
 app.locals.appName = '员工入职体检管理平台';
 app.use('/', indexRouter);
 // 标准规则属于 SSC 管理功能：只允许 SSC（含 admin）访问
