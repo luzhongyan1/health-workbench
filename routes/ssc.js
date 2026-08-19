@@ -2,8 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const ExcelJS = require('exceljs');
 const { pool } = require('../db/config');
-const { judgeItem, rankOverall, judgeByStandards, judgeBatchByStandardsWithAI } = require('../services/healthRating');
-const deepseek = require('../services/deepseek');
+const { judgeItem, rankOverall, judgeByStandards, deriveGender } = require('../services/healthRating');
 const { LATEST_REAL_BATCH, PASS_IN_HISTORY_FILTER, HAS_UPLOAD_FILTER } = require('../db/query-filters');
 
 // 把 ExcelJS 日期单元格安全转成 'YYYY-MM-DD'（取本地时区，避免 UTC 偏移）
@@ -759,69 +758,24 @@ router.post('/import-results', upload.single('file'), async (req, res) => {
 
     if (parsed.mode === 'fat') {
       // 【胖模板】按 standards 表严格重判——不信任 Excel 写的 overall
-      //   优先使用 DeepSeek 深度思考模型；未配置或失败时回退到本地规则引擎
-      let aiError = null;
-      let aiResults = [];
-
-      if (deepseek.isConfigured() && standards.length > 0) {
-        try {
-          aiResults = await judgeBatchByStandardsWithAI(parsed.rows, standards);
-        } catch (err) {
-          aiError = err.message;
-          console.error('[import-results] DeepSeek 评级失败，回退到本地规则：', err.message);
-        }
-      }
-
-      const aiByKey = new Map();
-      for (const r of aiResults) {
-        aiByKey.set(`${r.id_card}|${r.name}`, r);
-      }
-
+      //   统一使用本地规则引擎（确定性判定，杜绝 AI 凭空生成医学解释）；
+      //   判定文本合并"目前已存在异常 + 异常项"两列，避免漏看任一列
       for (const r of parsed.rows) {
-        const ai = aiByKey.get(`${r.id_card}|${r.name}`);
-        if (ai) {
-          const matchedNames = ai.matchedItems.map((it) => it.name).filter(Boolean);
-          // 【关键】risk 只从命中标准项的 risk 字段聚合（来源于 standards 表），
-          //   不用 ai.riskText（DeepSeek 会"无中生有"凭空生成医学解释，如"高回声团""血管瘤"）
-          const aggregatedRisk = ai.matchedItems
-            .map((it) => it.risk)
-            .filter(Boolean)
-            .join('\n');
-          preview.push({
-            name: r.name,
-            id_card: r.id_card,
-            overall: ai.overall,
-            summary: r.summary || r.abnormal || '', // 目前已存在异常：保留原始异常描述（优先用 summary 列）
-            abnormal: r.abnormal || matchedNames.join('; ') || '', // 备注：优先用 Excel 原文，无原文再用命中项名
-            missing: r.missing || '', // 缺项
-            risk: r.risk || aggregatedRisk || '', // 复查建议及相关风险：优先 Excel 原文 → 命中标准 risk 汇总 → 空
-            itemDetails: ai.matchedItems.map((it) => ({
-              itemName: it.name,
-              result: it.rating,
-              risk: it.risk || ''
-            })),
-            aiJudged: true
-          });
-        } else {
-          // 回退到本地规则引擎
-          const judgeText = r.summary || r.abnormal || '';
-          const judged = judgeByStandards(judgeText, r.missing || '', standards);
-          preview.push({
-            name: r.name,
-            id_card: r.id_card,
-            overall: judged.overall,
-            summary: r.summary || r.abnormal || '', // 目前已存在异常：优先用 summary 列，保持与评级输入一致
-            abnormal: r.abnormal || judged.abnormalItems.concat(judged.missingItems).join('; ') || '',
-            missing: r.missing || '',
-            risk: r.risk || judged.riskText || '',
-            itemDetails: judged.itemDetails || [],
-            aiJudged: false
-          });
-        }
-      }
-
-      if (aiError) {
-        preview._aiError = aiError;
+        const judgeText = [r.summary, r.abnormal].filter(Boolean).join('\n');
+        const judged = judgeByStandards(judgeText, r.missing || '', standards, {
+          gender: deriveGender(r.id_card),
+        });
+        preview.push({
+          name: r.name,
+          id_card: r.id_card,
+          overall: judged.overall,
+          summary: r.summary || r.abnormal || '', // 目前已存在异常：优先用 summary 列，保持与评级输入一致
+          abnormal: r.abnormal || judged.abnormalItems.concat(judged.missingItems).join('; ') || '',
+          missing: r.missing || '',
+          risk: r.risk || judged.riskText || '',
+          itemDetails: judged.itemDetails || [],
+          aiJudged: false
+        });
       }
     } else {
       // 【瘦模板】按体检项目逐项判定

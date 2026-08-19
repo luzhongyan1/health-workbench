@@ -50,6 +50,26 @@ const SUBSTRING_EXCLUDE_SUFFIXES = [
   '大型', '小型', '中间', '分类', '分类计数',
 ];
 
+// 关键词匹配中的"泛化词"——这些词单独命中不能作为匹配依据
+// 防止 "ST异常" 通过关键词"异常"误命中 "非特异性ST波异常" 这类不同项目
+const GENERIC_KEYWORDS = new Set([
+  '异常', '改变', '偏高', '偏低', '增高', '降低', '阳性', '阴性',
+  '以上', '以下', '未检', '增大', '减小', '建议', '复查',
+]);
+
+// 分类名——作为关键词时不能参与匹配（"心电图：频发性室性早搏" 不应因含"心电图"
+// 而命中 "有心肌梗塞字样心电图"）；裸分类名（单独一行"心电图"）也不作为测试项
+const CATEGORY_KEYWORDS = new Set([
+  '心电图', '血常规', '尿常规', '肝功能', '血压', '胸透', '胸片',
+  'B超', '彩超', '体检', '检查',
+]);
+const KEYWORD_BLACKLIST = new Set([...GENERIC_KEYWORDS, ...CATEGORY_KEYWORDS]);
+
+const BARE_CATEGORY_RE = /^(心电图|血常规|尿常规|肝功能|血压|B超|彩超|胸片|体检|体检报告)$/;
+
+// 严重程度词权重（用于 "中度及以上" 这类分级标准）
+const SEVERITY_WEIGHT = { '轻度': 1, '中度': 2, '重度': 3 };
+
 const RE_CJK = /[㐀-鿿]+/g;
 const RE_LATIN = /[A-Za-z]+/g;
 
@@ -62,6 +82,15 @@ function parseStandardItemName(itemName) {
   let core = original.replace(/^[^：:]+[：:]\s*/, '');
 
   let condition = null;
+
+  // 【性别双阈值】"血红蛋白男性低于90g/L、女性低于80g/L" → 主阈值(男) + femaleValue(女)
+  //   必须先于通用"低于N"解析执行，否则只会抓到男性阈值
+  const maleM = core.match(/男性[^0-9]*低于\s*(\d+(?:\.\d+)?)/);
+  const femaleM = core.match(/女性[^0-9]*低于\s*(\d+(?:\.\d+)?)/);
+  if (maleM && femaleM) {
+    condition = { type: 'lte', value: parseFloat(maleM[1]), femaleValue: parseFloat(femaleM[1]) };
+    core = core.replace(/男性[\s\S]*$/, '').trim();
+  }
 
   // 范围条件："45-50" 或 "150-200"
   const rangeMatch = core.match(/(\d+(?:\.\d+)?)\s*[-~]\s*(\d+(?:\.\d+)?)/);
@@ -146,8 +175,8 @@ function parseTestItem(line) {
   const cleaned = line.trim();
   if (!cleaned) return null;
 
-  // 格式1: [名称] [偏高/偏低/异常] [数值] [单位] [↑/↓]
-  const m1 = cleaned.match(/^(.+?)\s*(?:偏高|偏低|增高|降低|异常|阳性|阴性)?\s*(\d+(?:\.\d+)?)\s*([A-Za-z/%^①-⑳\d]+)?\s*[↑↓]?\s*$/);
+  // 格式1: [名称] [偏高/偏低] [数值] [单位] [↑/↓]（单位含上标字符如 kg/m²、10⁹）
+  const m1 = cleaned.match(/^(.+?)\s*(?:偏高|偏低|增高|降低|异常|阳性|阴性)?\s*(\d+(?:\.\d+)?)\s*([A-Za-z/%^①-⑳\d²³¹⁰⁴⁵⁶⁷⁸⁹·μ°]+)?\s*[↑↓]?\s*$/);
   if (m1) {
     const name = m1[1].replace(/[\s↑↓]+$/, '').trim();
     // 排除"序号、项目名"这种被误匹配的情况
@@ -262,11 +291,19 @@ function nameMatches(testItemName, stdTestNames, standardOriginal) {
       }
     }
 
-    // 关键词匹配（CJK 长度>=2）
+    // 关键词匹配：两侧关键词均需长度>=2 且不在黑名单（泛化词/分类名）中
     const testKws = extractKeywords(testName);
     const stdKws = extractKeywords(sn);
-    const common = testKws.filter(k => stdKws.some(sk => sk.includes(k) || k.includes(sk)));
-    if (common.length >= 1 && common.some(k => k.length >= 2)) {
+    let kwHit = false;
+    for (const k of testKws) {
+      if (k.length < 2 || KEYWORD_BLACKLIST.has(k)) continue;
+      for (const sk of stdKws) {
+        if (sk.length < 2 || KEYWORD_BLACKLIST.has(sk)) continue;
+        if (sk.includes(k) || k.includes(sk)) { kwHit = true; break; }
+      }
+      if (kwHit) break;
+    }
+    if (kwHit) {
       // 关键词匹配也检查后缀排除
       if (testName.length > sn.length) {
         const suffix = testName.replace(sn, '');
@@ -284,7 +321,7 @@ function nameMatches(testItemName, stdTestNames, standardOriginal) {
 // =============================================================
 // 数值条件匹配
 // =============================================================
-function conditionMatches(testItem, condition) {
+function conditionMatches(testItem, condition, gender) {
   if (!condition) return true; // 无条件 = 纯文本匹配
   if (testItem.value == null) return false;
 
@@ -303,7 +340,13 @@ function conditionMatches(testItem, condition) {
   switch (condition.type) {
     case 'range': return numVal >= condition.min && numVal <= condition.max;
     case 'gte': return numVal >= condition.value;
-    case 'lte': return numVal <= condition.value;
+    case 'lte': {
+      // 性别双阈值（如 血红蛋白 男性低于90、女性低于80）
+      const limit = (condition.femaleValue != null && gender === 'female')
+        ? condition.femaleValue
+        : condition.value;
+      return numVal <= limit;
+    }
     default: return true;
   }
 }
@@ -338,9 +381,60 @@ function normalizeRating(v) {
 }
 
 // =============================================================
+// 辅助：性别 / 分级门槛
+// =============================================================
+
+// 从身份证号第 17 位推断性别（奇数=男，偶数=女）
+function deriveGender(idCard) {
+  if (!idCard) return null;
+  const s = idCard.toString().replace(/\s/g, '');
+  if (!/^\d{17}[\dXx]?$/.test(s)) return null;
+  const d = parseInt(s[16], 10);
+  if (Number.isNaN(d)) return null;
+  return d % 2 === 1 ? 'male' : 'female';
+}
+
+// 标准条目的性别限定：'female' / 'male' / 'both'(男女都提到) / null(无性别限定)
+function standardGenderScope(itemName) {
+  const hasF = /女性/.test(itemName);
+  const hasM = /男性/.test(itemName);
+  if (hasF && hasM) return 'both';
+  if (hasF) return 'female';
+  if (hasM) return 'male';
+  return null;
+}
+
+// 解析 "中度及以上" 这类分级门槛；数值阈值从描述行提取（如 "中度一般在10-15mm" → 10）
+function buildSeverityGate(primaryLine, fullItemName) {
+  const m = (primaryLine || '').match(/(轻度|中度|重度)\s*(及以上|以上)/);
+  if (!m) return null;
+  const minSev = SEVERITY_WEIGHT[m[1]];
+  let numTh = null;
+  try {
+    const nm = fullItemName.match(new RegExp(m[1] + '[^0-9]{0,10}(\\d+(?:\\.\\d+)?)'));
+    if (nm) numTh = parseFloat(nm[1]);
+  } catch (e) { /* 忽略 */ }
+  return { word: m[1], minSev, numTh };
+}
+
+// 命中行是否满足分级门槛：需含相应严重度词，或数值达到描述行给出的阈值
+function severityOk(sevGate, lineText) {
+  if (!sevGate) return true;
+  const t = (lineText || '').toString();
+  if (/重度/.test(t)) return 3 >= sevGate.minSev;
+  if (/中度/.test(t)) return 2 >= sevGate.minSev;
+  if (/轻度/.test(t)) return 1 >= sevGate.minSev;
+  if (sevGate.numTh != null) {
+    const nums = (t.match(/\d+(?:\.\d+)?/g) || []).map(Number);
+    if (nums.some(n => n >= sevGate.numTh)) return true;
+  }
+  return false;
+}
+
+// =============================================================
 // 核心：按体检标准判定（本地规则引擎）
 // =============================================================
-function judgeByStandards(abnormalText, missingText, standards) {
+function judgeByStandards(abnormalText, missingText, standards, options) {
   const result = {
     overall: '合格',
     abnormalItems: [],
@@ -352,25 +446,43 @@ function judgeByStandards(abnormalText, missingText, standards) {
 
   if (!standards || standards.length === 0) return result;
 
+  const gender = (options && options.gender) || null;
+
   const fullAbnormalText = (abnormalText || '').toString();
   const fullMissingText = (missingText || '').toString();
 
-  // 规则 A：未到检 / 未参检 直接判定
+  // 规则 A：未到检 / 未参检 直接判定（最低优先级档）
   const notAttendedRegex = /^\s*(未到检|未参检|未参加体检|未体检)\s*$/;
   if (notAttendedRegex.test(fullAbnormalText) || notAttendedRegex.test(fullMissingText)) {
     result.overall = '未参检';
     return result;
   }
-
-  // 规则 B：体检报告明确写“未见明显异常”即视为合格，禁止自行联想
-  if (/未见(明显)?异常/.test(fullAbnormalText)) {
-    result.overall = '合格';
-    return result;
-  }
+  // 注：不再因「未见明显异常」提前返回合格——仍需按标准核对缺项
+  //（例如"女性胸透未检"在缺项列时应判红灯），未命中任何标准时结果自然为合格。
 
   // 解析异常文本和缺项文本为结构化测试项
   const testItems = parseAbnormalText(abnormalText);
   const missingItemsParsed = parseAbnormalText(missingText);
+
+  // 【合格项保护】评级为"合格"的标准条目（如"心电图：ST异常"）——
+  //   与之完全同名的测试项不再参与其他标准的匹配，
+  //   防止"ST异常"通过关键词"异常"误命中"非特异性ST波异常"(复查)等条目
+  const passPhrases = new Set();
+  for (const std of standards) {
+    if (ratingOfStandard(std) !== '合格') continue;
+    const p = parseStandardItemName(std.item_name || '');
+    for (const tn of p.testNames) {
+      if (tn && tn.length >= 2) passPhrases.add(tn);
+    }
+  }
+  const isProtectedPassItem = (testName) => {
+    const n = (testName || '').trim();
+    if (!n) return false;
+    for (const p of passPhrases) {
+      if (n === p || n.endsWith('：' + p) || n.endsWith(':' + p)) return true;
+    }
+    return false;
+  };
 
   const riskSet = new Set();
   const abnormalNameSet = new Set();
@@ -385,7 +497,32 @@ function judgeByStandards(abnormalText, missingText, standards) {
     const rating = ratingOfStandard(std);
     if (!rating || rating === '合格') continue; // 跳过"合格"标准，不产生命中
 
-    const parsed = parseStandardItemName(itemName);
+    // 【性别限定】标准写明"女性…"/"男性…"（单性别）且已从身份证判断出性别时，
+    //   只对相应性别生效——男性缺胸透不能命中"女性胸透未检"(红灯)
+    const scope = standardGenderScope(itemName);
+    if (scope && scope !== 'both' && gender && gender !== scope) continue;
+
+    // 【多行标准】只解析首行的名称与数值条件；其余行（如"描述：胰腺壁增厚…"）
+    //   不参与条件解析（避免"10-15mm"这类描述数字被误认为判定阈值），转作补充匹配短语
+    const lines = itemName.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    const primaryLine = lines[0] || itemName;
+    const parsed = parseStandardItemName(primaryLine);
+
+    // 补充匹配短语：描述行按 、，,；; 拆分（≥4 字），以及 "有X字样" 提取（如 心肌梗塞）
+    const descPhrases = [];
+    for (let i = 1; i < lines.length; i++) {
+      const l = lines[i].replace(/^描述[：:]\s*/, '').trim();
+      if (!l) continue;
+      for (const p of l.split(/[、，,；;]/)) {
+        const t = p.trim();
+        if (t.length >= 4) descPhrases.push(t);
+      }
+    }
+    const ziYang = primaryLine.match(/有(.{2,10}?)字样/);
+    if (ziYang) descPhrases.push(ziYang[1]);
+
+    // 【分级门槛】"中度及以上"类标准：命中行需含相应严重度词或数值达标
+    const sevGate = buildSeverityGate(primaryLine, itemName);
 
     let matchedItem = null;
     let source = null;
@@ -393,18 +530,23 @@ function judgeByStandards(abnormalText, missingText, standards) {
     // 1. 在异常测试项中匹配
     const isHeartRateStd = parsed.testNames.some(n => n === '心率' || n === 'HR');
     for (const ti of testItems) {
+      // 裸分类名（如单独一行"心电图"）不是测试项，跳过
+      if (ti.value == null && BARE_CATEGORY_RE.test((ti.name || '').trim())) continue;
+      if (isProtectedPassItem(ti.name)) continue;
       // 内科常规检查的心率不是心电图心率，不纳入考核
       if (isHeartRateStd && (ti.category || '').includes('内科') && (ti.name || '').includes('心率')) {
         continue;
       }
-      if (nameMatches(ti.name, parsed.testNames, parsed.original) && conditionMatches(ti, parsed.condition)) {
+      if (nameMatches(ti.name, parsed.testNames, parsed.original)
+          && conditionMatches(ti, parsed.condition, gender)
+          && severityOk(sevGate, ti.rawLine || ti.raw || '')) {
         matchedItem = ti;
         source = 'abnormal';
         break;
       }
     }
 
-    // 2. 在缺项中匹配
+    // 2. 在缺项中匹配（如"女性胸透未检"/"男性胸透未检"）
     if (!matchedItem) {
       for (const mi of missingItemsParsed) {
         if (nameMatches(mi.name, parsed.testNames, parsed.original)) {
@@ -415,13 +557,22 @@ function judgeByStandards(abnormalText, missingText, standards) {
       }
     }
 
-    // 3. 回退到全文本匹配（处理解析不出来的情况）
+    // 3. 回退到全文本包含匹配（标准名 + 描述短语），处理解析不出来的情况
     if (!matchedItem) {
-      if (fullAbnormalText.includes(itemName) || fullMissingText.includes(itemName)) {
-        // 检查数值条件是否满足
-        if (!parsed.condition || textContainsMatchingNumber(fullAbnormalText, parsed.condition, parsed.testNames)) {
-          matchedItem = { name: itemName, value: null, raw: itemName };
-          source = fullMissingText.includes(itemName) ? 'missing' : 'abnormal';
+      const phrases = [...parsed.testNames.filter(Boolean), ...descPhrases];
+      for (const ph of phrases) {
+        if (!ph || ph.length < 2) continue;
+        const inAbnormal = fullAbnormalText.includes(ph);
+        const inMissing = fullMissingText.includes(ph);
+        if (!inAbnormal && !inMissing) continue;
+        const container = inAbnormal ? fullAbnormalText : fullMissingText;
+        if (!parsed.condition || textContainsMatchingNumber(container, parsed.condition, parsed.testNames, gender)) {
+          const hitLine = container.split(/\r?\n/).find(ln => ln.includes(ph)) || '';
+          if (severityOk(sevGate, hitLine)) {
+            matchedItem = { name: ph, value: null, raw: ph };
+            source = (inMissing && !inAbnormal) ? 'missing' : 'abnormal';
+            break;
+          }
         }
       }
     }
@@ -454,20 +605,43 @@ function judgeByStandards(abnormalText, missingText, standards) {
 }
 
 // 全文本中查找匹配数值条件的内容
-function textContainsMatchingNumber(text, condition, testNames) {
+//   - 名称变体扩展：体重指数 ↔ BMI 等术语别名
+//   - 只取名称后第一个数字作为检测值（单位里的数字如 10^9/L 的 10 不算）
+//   - 支持性别双阈值（血红蛋白 男90/女80）
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function textContainsMatchingNumber(text, condition, testNames, gender) {
   if (!condition) return true;
+  const variants = new Set();
+  for (const tn of testNames) {
+    if (!tn) continue;
+    variants.add(tn);
+    for (const g of TERM_ALIASES) {
+      const hit = g.aliases.some(a => tn.includes(a)) || tn.includes(g.canonical);
+      if (hit) {
+        variants.add(g.canonical);
+        g.aliases.forEach(a => variants.add(a));
+      }
+    }
+  }
   const lines = text.toString().split(/\r?\n/);
   for (const line of lines) {
-    for (const tn of testNames) {
-      if (!line.includes(tn)) continue;
-      const nums = (line.match(/\d+(?:\.\d+)?/g) || []).map(Number);
-      for (const n of nums) {
-        switch (condition.type) {
-          case 'range': if (n >= condition.min && n <= condition.max) return true; break;
-          case 'gte': if (n >= condition.value) return true; break;
-          case 'lte': if (n <= condition.value) return true; break;
-          case 'urine': break; // 尿常规在文本匹配中跳过
+    for (const v of variants) {
+      const re = new RegExp(escapeRegExp(v) + '[^0-9]{0,8}(\\d+(?:\\.\\d+)?)');
+      const m = line.match(re);
+      if (!m) continue;
+      const n = parseFloat(m[1]);
+      switch (condition.type) {
+        case 'range': if (n >= condition.min && n <= condition.max) return true; break;
+        case 'gte': if (n >= condition.value) return true; break;
+        case 'lte': {
+          const limit = (condition.femaleValue != null && gender === 'female')
+            ? condition.femaleValue : condition.value;
+          if (n <= limit) return true; break;
         }
+        case 'urine': break; // 尿常规在文本匹配中跳过
       }
     }
   }
@@ -737,6 +911,7 @@ async function judgeBatchByStandardsWithAI(persons, standards) {
 module.exports = {
   judgeByStandards,
   judgeBatchByStandardsWithAI,
+  deriveGender,
   parseAbnormalText,
   parseStandardItemName,
   nameMatches,

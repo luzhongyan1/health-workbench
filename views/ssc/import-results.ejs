@@ -62,20 +62,9 @@
     <% const overallOptions = ['未参检','合格','合格-有风险','复查','红灯']; %>
     <div class="mt-4">
       <h2 class="h5">结果预览</h2>
-      <% if (preview._aiError) { %>
-        <div class="alert alert-warning">
-          <strong>DeepSeek 深度思考评级未生效：</strong><%= preview._aiError %><br>
-          <small>当前已自动回退到本地规则引擎。如需使用 DeepSeek，请在项目根目录 .env 文件中配置 DEEPSEEK_API_KEY 后重启服务。</small>
-        </div>
-      <% } else if (preview.some((r) => r.aiJudged)) { %>
-        <div class="alert alert-info">
-          <small>✅ 本次评级已使用 DeepSeek 深度思考模型，严格按上传的体检标准判定。</small>
-        </div>
-      <% } else { %>
-        <div class="alert alert-secondary">
-          <small>当前未配置 DeepSeek API Key，使用本地规则引擎评级。如需启用 DeepSeek，请在 .env 中配置 DEEPSEEK_API_KEY。</small>
-        </div>
-      <% } %>
+      <div class="alert alert-secondary">
+        <small>✅ 本次评级由本地规则引擎严格按上传的体检标准逐条判定：只有标准中明确列出的异常/缺项才触发对应评级，不在标准中的项目一律视为合格。</small>
+      </div>
       <div class="table-responsive">
         <table class="table table-bordered table-sm align-middle" style="min-width: 1400px;">
           <thead class="table-light">
