@@ -781,14 +781,20 @@ router.post('/import-results', upload.single('file'), async (req, res) => {
         const ai = aiByKey.get(`${r.id_card}|${r.name}`);
         if (ai) {
           const matchedNames = ai.matchedItems.map((it) => it.name).filter(Boolean);
+          // 【关键】risk 只从命中标准项的 risk 字段聚合（来源于 standards 表），
+          //   不用 ai.riskText（DeepSeek 会"无中生有"凭空生成医学解释，如"高回声团""血管瘤"）
+          const aggregatedRisk = ai.matchedItems
+            .map((it) => it.risk)
+            .filter(Boolean)
+            .join('\n');
           preview.push({
             name: r.name,
             id_card: r.id_card,
             overall: ai.overall,
             summary: r.summary || r.abnormal || '', // 目前已存在异常：保留原始异常描述（优先用 summary 列）
-            abnormal: matchedNames.join('; ') || '', // 体检标准中的异常项+缺项项目
-            missing: '', // 缺项已合并到 abnormal 列展示
-            risk: ai.riskText || '', // 异常项对应的风险提示
+            abnormal: r.abnormal || matchedNames.join('; ') || '', // 备注：优先用 Excel 原文，无原文再用命中项名
+            missing: r.missing || '', // 缺项
+            risk: r.risk || aggregatedRisk || '', // 复查建议及相关风险：优先 Excel 原文 → 命中标准 risk 汇总 → 空
             itemDetails: ai.matchedItems.map((it) => ({
               itemName: it.name,
               result: it.rating,
@@ -805,9 +811,9 @@ router.post('/import-results', upload.single('file'), async (req, res) => {
             id_card: r.id_card,
             overall: judged.overall,
             summary: r.summary || r.abnormal || '', // 目前已存在异常：优先用 summary 列，保持与评级输入一致
-            abnormal: judged.abnormalItems.concat(judged.missingItems).join('; ') || '',
-            missing: '',
-            risk: judged.riskText || '',
+            abnormal: r.abnormal || judged.abnormalItems.concat(judged.missingItems).join('; ') || '',
+            missing: r.missing || '',
+            risk: r.risk || judged.riskText || '',
             itemDetails: judged.itemDetails || [],
             aiJudged: false
           });
