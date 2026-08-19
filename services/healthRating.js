@@ -529,14 +529,18 @@ function judgeByStandards(abnormalText, missingText, standards, options) {
 
     // 1. 在异常测试项中匹配
     const isHeartRateStd = parsed.testNames.some(n => n === '心率' || n === 'HR');
+    const stdIsMissingOnly = /未检/.test(itemName); // 如"女性胸透未检"：仅缺项列可命中
     for (const ti of testItems) {
       // 裸分类名（如单独一行"心电图"）不是测试项，跳过
       if (ti.value == null && BARE_CATEGORY_RE.test((ti.name || '').trim())) continue;
       if (isProtectedPassItem(ti.name)) continue;
-      // 内科常规检查的心率不是心电图心率，不纳入考核
-      if (isHeartRateStd && (ti.category || '').includes('内科') && (ti.name || '').includes('心率')) {
+      // 心率特指心电图心率，内科检查的心率不作为审核指标——
+      //   项目明确来自内科（分类或原文含"内科"）时跳过，避免把内科心率误判为心率过速
+      if (isHeartRateStd && ((ti.category || '').includes('内科') || (ti.rawLine || ti.raw || '').includes('内科'))) {
         continue;
       }
+      // "未检"类标准（缺项）只应在缺项列命中；异常列里出现的同名项目（如"胸透：正常"）不算未检
+      if (stdIsMissingOnly) continue;
       if (nameMatches(ti.name, parsed.testNames, parsed.original)
           && conditionMatches(ti, parsed.condition, gender)
           && severityOk(sevGate, ti.rawLine || ti.raw || '')) {
@@ -565,12 +569,16 @@ function judgeByStandards(abnormalText, missingText, standards, options) {
         const inAbnormal = fullAbnormalText.includes(ph);
         const inMissing = fullMissingText.includes(ph);
         if (!inAbnormal && !inMissing) continue;
-        const container = inAbnormal ? fullAbnormalText : fullMissingText;
+        // "未检"类标准：仅在缺项列命中（异常列出现同名项目不算未检）
+        if (stdIsMissingOnly && !inMissing) continue;
+        const container = inMissing ? fullMissingText : fullAbnormalText;
+        // 心率特指心电图心率：内科原文中的心率不纳入考核
+        if (isHeartRateStd && container.includes('内科')) continue;
         if (!parsed.condition || textContainsMatchingNumber(container, parsed.condition, parsed.testNames, gender)) {
           const hitLine = container.split(/\r?\n/).find(ln => ln.includes(ph)) || '';
           if (severityOk(sevGate, hitLine)) {
             matchedItem = { name: ph, value: null, raw: ph };
-            source = (inMissing && !inAbnormal) ? 'missing' : 'abnormal';
+            source = inMissing ? 'missing' : 'abnormal';
             break;
           }
         }
